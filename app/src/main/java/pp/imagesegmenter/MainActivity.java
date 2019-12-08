@@ -24,7 +24,6 @@ import android.graphics.Matrix;
 import android.graphics.Paint;
 import android.graphics.Typeface;
 import android.media.ImageReader.OnImageAvailableListener;
-import android.os.SystemClock;
 import android.util.Size;
 import android.util.TypedValue;
 import android.widget.FrameLayout;
@@ -33,13 +32,14 @@ import android.widget.ImageView;
 import com.google.android.material.snackbar.Snackbar;
 
 import java.util.ArrayList;
-import java.util.List;
 import java.util.Vector;
 
 import pp.imagesegmenter.env.BorderedText;
 import pp.imagesegmenter.env.ImageUtils;
 import pp.imagesegmenter.env.Logger;
 import pp.imagesegmenter.tracking.MultiBoxTracker;
+
+import static java.lang.Thread.sleep;
 
 /**
 * An activity that uses a Deeplab and ObjectTracker to segment and then track objects.
@@ -182,18 +182,14 @@ public class MainActivity extends CameraActivity implements OnImageAvailableList
         });
     }
 
+    final ArrayList<Bitmap> extractedStreams = new ArrayList<>(30);
+
     @Override
     protected void processImage() {
         ++timestamp;
         final long currTimestamp = timestamp;
         byte[] originalLuminance = getLuminance();
-        tracker.onFrame(
-                previewWidth,
-                previewHeight,
-                getLuminanceStride(),
-                sensorOrientation,
-                originalLuminance,
-                timestamp);
+        tracker.onFrame(previewWidth, previewHeight, getLuminanceStride(), sensorOrientation, originalLuminance, timestamp);
         trackingOverlay.postInvalidate();
 
         // No mutex needed as this method is not reentrant.
@@ -214,40 +210,55 @@ public class MainActivity extends CameraActivity implements OnImageAvailableList
 
         final Canvas canvas = new Canvas(croppedBitmap);
         canvas.drawBitmap(rgbFrameBitmap, frameToCropTransform, null);
-        // For examining the actual TF input.
-        if (SAVE_PREVIEW_BITMAP) {
-            ImageUtils.saveBitmap(croppedBitmap);
-        }
 
-        runInBackground(
-                () -> {
-                    LOGGER.i("Running detection on image " + currTimestamp);
-                    final long startTime = SystemClock.uptimeMillis();
+        runInBackground(() -> {
+            cropCopyBitmap = Bitmap.createBitmap(croppedBitmap);
 
-                    cropCopyBitmap = Bitmap.createBitmap(croppedBitmap);
-                    Bitmap bitmap = deeplab.segment(croppedBitmap, cropToFrameTransform);
+            final Bitmap streamMask = deeplab.segment(croppedBitmap);
+            final Bitmap scaledMask = Bitmap.createScaledBitmap(streamMask, 240, 240, false);
+            final Bitmap extractedStream = extractWaterStream(croppedBitmap, scaledMask);
+            extractedStreams.add(extractedStream);
 
-                    final Bitmap scaled = Bitmap.createScaledBitmap(bitmap, 240, 240, false);
-                    List<Bitmap> scaleds = new ArrayList<>();
-                    for (int idx = 0; idx < 30; idx++) {
-                        scaleds.add(scaled);
-                    }
+            final int streamsCollected = extractedStreams.size();
+            runOnUiThread(() -> {
+                initSnackbar.setText("Collected " + streamsCollected + " frames...");
+                initSnackbar.show();
+                maskView.setImageBitmap(scaledMask);
+                extractedView.setImageBitmap(extractedStream);
+            });
 
-                    final Float flowrate = regression.segment(scaleds);
+            if (extractedStreams.size() < 10) {
+                trackingOverlay.postInvalidate();
+                requestRender();
+                computingDetection = false;
+                return;
+            }
 
-                    runOnUiThread(() -> {
-                        initSnackbar.setText(flowrate.toString());
-                        initSnackbar.show();
-                        maskView.setImageBitmap(scaled);
-                    });
+            for (int i = 0; i < 2; i++) {
+                for (int j = 0; j < 10; j++) {
+                    extractedStreams.add(extractedStreams.get(j));
+                }
+            }
 
-//                    lastProcessingTimeMs = SystemClock.uptimeMillis() - startTime;
-//                    tracker.trackResults(mappedRecognitions, luminanceCopy, currTimestamp);
-                    trackingOverlay.postInvalidate();
+            final Float flowrate = regression.segment(extractedStreams);
+            extractedStreams.clear();
 
-                    requestRender();
-                    computingDetection = false;
-                });
+            runOnUiThread(() -> {
+                initSnackbar.setText(flowrate.toString());
+                initSnackbar.show();
+            });
+
+            try {
+                sleep(3000);
+            } catch (InterruptedException e) {
+                // can't sleep :(
+                e.printStackTrace();
+            }
+
+            trackingOverlay.postInvalidate();
+            requestRender();
+            computingDetection = false;
+        });
     }
 
     @Override
@@ -258,5 +269,18 @@ public class MainActivity extends CameraActivity implements OnImageAvailableList
     @Override
     protected Size getDesiredPreviewFrameSize() {
         return DESIRED_PREVIEW_SIZE;
+    }
+
+    private Bitmap extractWaterStream(Bitmap streamImage, Bitmap streamMask) {
+        final int black = Color.rgb(0, 0, 0);
+
+        for (int row = 0; row < streamImage.getHeight(); row++) {
+            for (int col = 0; col < streamImage.getWidth(); col++) {
+                int maskPixel = streamMask.getPixel(col, row);
+                if (maskPixel == black) streamImage.setPixel(col, row, black);
+            }
+        }
+
+        return streamImage;
     }
 }

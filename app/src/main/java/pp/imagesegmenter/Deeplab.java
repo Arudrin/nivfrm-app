@@ -18,12 +18,9 @@ package pp.imagesegmenter;
 import android.content.res.AssetFileDescriptor;
 import android.content.res.AssetManager;
 import android.graphics.Bitmap;
-import android.graphics.Canvas;
 import android.graphics.Color;
-import android.graphics.Matrix;
 import android.graphics.Point;
 import android.graphics.RectF;
-import android.util.Log;
 
 import org.tensorflow.lite.Interpreter;
 import org.tensorflow.lite.gpu.GpuDelegate;
@@ -33,9 +30,9 @@ import java.io.IOException;
 import java.nio.ByteBuffer;
 import java.nio.ByteOrder;
 import java.nio.channels.FileChannel;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.Stack;
-
-import pp.imagesegmenter.env.ImageUtils;
 
 public class Deeplab {
     /**
@@ -176,7 +173,7 @@ public class Deeplab {
 
     private Deeplab() {}
 
-    Bitmap segment(Bitmap bitmap, Matrix matrix) {
+    Bitmap segment(Bitmap bitmap) {
         bitmap.getPixels(intValues, 0, bitmap.getWidth(), 0, 0, bitmap.getWidth(), bitmap.getHeight());
 
         imgData.rewind();
@@ -188,9 +185,6 @@ public class Deeplab {
             imgData.putFloat((float) ((val & 0xFF) - 123.68));
         }
 
-        Log.e("TAG", "imgData: " + imgData.capacity());
-        Log.e("TAG", "outputBuffer: " + outputBuffer.capacity());
-
         // Copy the input data into TensorFlow.
         tfLite.run(imgData, outputBuffer);
 
@@ -199,105 +193,60 @@ public class Deeplab {
         int white = Color.rgb(255, 255, 255);
         int black = Color.rgb(0, 0, 0);
 
-        int customHeight = 120, customWidth = 120;
-        Bitmap bgBitmap = Bitmap.createBitmap(customWidth, customHeight, Bitmap.Config.ARGB_8888);
-        Bitmap streamBitmap = Bitmap.createBitmap(customWidth, customHeight, Bitmap.Config.ARGB_8888);
+        Bitmap maskBitmap = Bitmap.createBitmap(120, 120, Bitmap.Config.ARGB_8888);
 
-        for (int row = 0; row < customHeight; row++) {
-            for (int col = 0; col < customWidth; col++) {
+        for (int row = 0; row < 120; row++) {
+            for (int col = 0; col < 120; col++) {
                 for (int idx = 0; idx < 2; idx++) {
                     float value = outputBuffer.getFloat();
-                    if (idx % 2 == 0) {
-                        bgBitmap.setPixel(col, row, value > 0.99 ? white : black);
-                    } else {
-                        streamBitmap.setPixel(col, row, value > 0.99 ? white : black);
+                    if (idx % 2 != 0) {
+                        maskBitmap.setPixel(col, row, value > 0.99 ? white : black);
                     }
                 }
             }
         }
 
-//        ImageUtils.saveBitmap(bgBitmap, "bg.png");
-//        ImageUtils.saveBitmap(streamBitmap, "stream.png");
-
-//        Matrix maskMatrix = new Matrix();
-//        ImageUtils.getTransformationMatrix(
-//                120, 120,
-//                240, 240,
-//                sensorOrientation, false).invert(maskMatrix);
-//        int[] rgbBytes = new int[640 * 480];
-//        Bitmap rgbFrameBitmap = Bitmap.createBitmap(640, 480, Bitmap.Config.ARGB_8888);
-//        rgbFrameBitmap.setPixels(rgbBytes, 0, 640, 0, 0, 640, 480);
-//
-//        Canvas canvas = new Canvas(streamBitmap);
-//        canvas.drawBitmap(rgbFrameBitmap, maskMatrix, null);
-
-        return streamBitmap;
+        return maskBitmap;
     }
 
-    private Bitmap createMask(int id, Matrix matrix, RectF rectF) {
-        int w = (int) rectF.width();
-        int h = (int) rectF.height();
+    List<Bitmap> segment(List<Bitmap> bitmaps) {
+        List<Bitmap> streamMasks = new ArrayList<Bitmap>(30);
+        List<ByteBuffer> byteBuffers = new ArrayList<ByteBuffer>(30);
 
-        int top = (int) rectF.top;
-        int left = (int) rectF.left;
-
-        Bitmap segBitmap = Bitmap.createBitmap(w, h, Bitmap.Config.ARGB_8888);
-        int[] tmpValues = new int[w * h];
-
-        while (!maskStack.empty()) {
-            Point point = maskStack.pop();
-            tmpValues[(point.y - top) * w + point.x - left] = colormap[id];
+        for (Bitmap bitmap : bitmaps) {
+            bitmap.getPixels(intValues, 0, bitmap.getWidth(), 0, 0, bitmap.getWidth(), bitmap.getHeight());
+            imgData.clear();
+            for (final int val : intValues) {
+                imgData.putFloat((float) (((val >> 16) & 0xFF) - 103.939));
+                imgData.putFloat((float) (((val >> 8) & 0xFF) - 116.779));
+                imgData.putFloat((float) ((val & 0xFF) - 123.68));
+            }
+            byteBuffers.add(imgData);
         }
 
-        segBitmap.setPixels(tmpValues, 0, w, 0, 0, w, h);
-        matrix.mapRect(rectF);
+        for (ByteBuffer byteBuffer : byteBuffers) {
+            outputBuffer.clear();
+            tfLite.run(byteBuffer, outputBuffer);
+            outputBuffer.flip();
 
-        Bitmap mask = Bitmap.createBitmap((int) rectF.width(), (int) rectF.height(), Bitmap.Config.ARGB_8888);
+            int white = Color.rgb(255, 255, 255);
+            int black = Color.rgb(0, 0, 0);
 
-        Matrix maskMatrix = new Matrix();
-        ImageUtils.getTransformationMatrix(
-                (int) rectF.width(), (int) rectF.height(),
-                w, h,
-                sensorOrientation, false).invert(maskMatrix);
+            Bitmap maskBitmap = Bitmap.createBitmap(120, 120, Bitmap.Config.ARGB_8888);
 
-        Canvas canvas = new Canvas(mask);
-        canvas.drawBitmap(segBitmap, maskMatrix, null);
-
-        return mask;
-    }
-
-    private void floodFill(int initX, int initY, int val, RectF rectF) {
-        outputValues[initY * width + initX] = 0;
-        pointStack.push(new Point(initX, initY));
-
-        while (!pointStack.empty()) {
-            Point point = pointStack.pop();
-            maskStack.push(point);
-
-            int row = point.x;
-            int col = point.y;
-
-            if (rectF.top > col) rectF.top = col;
-            if (rectF.bottom < col + 1) rectF.bottom = col + 1;
-            if (rectF.left > row) rectF.left = row;
-            if (rectF.right < row + 1) rectF.right = row + 1;
-
-            if (row > 0 && val == outputValues[col * width + row - 1]) {
-                outputValues[col * width + row - 1] = 0;
-                pointStack.push(new Point(row - 1, col));
+            for (int row = 0; row < 120; row++) {
+                for (int col = 0; col < 120; col++) {
+                    for (int idx = 0; idx < 2; idx++) {
+                        float value = outputBuffer.getFloat();
+                        if (idx % 2 != 0) {
+                            maskBitmap.setPixel(col, row, value > 0.99 ? white : black);
+                        }
+                    }
+                }
             }
-            if (row < width - 1 && val == outputValues[col * width + row + 1]) {
-                outputValues[col * width + row + 1] = 0;
-                pointStack.push(new Point(row + 1, col));
-            }
-            if (col > 0 && val == outputValues[(col - 1) * width + row]) {
-                outputValues[(col - 1) * width + row] = 0;
-                pointStack.push(new Point(row, col - 1));
-            }
-            if (col < height - 1 && val == outputValues[(col + 1) * width + row]) {
-                outputValues[(col + 1) * width + row] = 0;
-                pointStack.push(new Point(row, col + 1));
-            }
+            streamMasks.add(maskBitmap);
         }
+
+        return streamMasks;
     }
 }

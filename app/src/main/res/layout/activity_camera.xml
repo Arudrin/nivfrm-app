@@ -27,9 +27,12 @@
         android:layout_height="wrap_content"
         android:layout_gravity="bottom|end"
         android:contentDescription="water stream mask"
-        android:maxWidth="120dp"
-        android:maxHeight="120dp"
-        android:paddingBottom="80dp"
+        android:layout_marginRight="15dp"
+        android:layout_marginBottom="60dp"
+        android:background="@color/design_default_color_secondary"
+        android:minWidth="180dp"
+        android:minHeight="180dp"
+        android:padding="3dp"
         android:scaleType="fitCenter" />
 
     <ImageView
@@ -37,10 +40,13 @@
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
         android:layout_gravity="bottom|start"
-        android:contentDescription="water stream mask"
-        android:maxWidth="120dp"
-        android:maxHeight="120dp"
-        android:paddingBottom="100dp"
+        android:layout_marginLeft="15dp"
+        android:layout_marginBottom="60dp"
+        android:background="@color/design_default_color_secondary"
+        android:contentDescription="extracted water stream"
+        android:minWidth="180dp"
+        android:minHeight="180dp"
+        android:padding="3dp"
         android:scaleType="fitCenter" />
 
 </FrameLayout>
