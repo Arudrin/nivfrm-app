@@ -19,9 +19,11 @@ import android.content.res.AssetFileDescriptor;
 import android.content.res.AssetManager;
 import android.graphics.Bitmap;
 import android.graphics.Canvas;
+import android.graphics.Color;
 import android.graphics.Matrix;
 import android.graphics.Point;
 import android.graphics.RectF;
+import android.util.Log;
 
 import org.tensorflow.lite.Interpreter;
 import org.tensorflow.lite.gpu.GpuDelegate;
@@ -31,8 +33,6 @@ import java.io.IOException;
 import java.nio.ByteBuffer;
 import java.nio.ByteOrder;
 import java.nio.channels.FileChannel;
-import java.util.LinkedList;
-import java.util.List;
 import java.util.Stack;
 
 import pp.imagesegmenter.env.ImageUtils;
@@ -85,7 +85,7 @@ public class Deeplab {
         }
     }
 
-    private static final String MODEL_FILE = "deeplabv3_257_mv_gpu.tflite";
+    private static final String MODEL_FILE = "segmentation.tflite";
     // Float model
     private static final float IMAGE_MEAN = 128.0f;
     private static final float IMAGE_STD = 128.0f;
@@ -165,7 +165,7 @@ public class Deeplab {
         d.imgData = ByteBuffer.allocateDirect(inputWidth * inputHeight * 3 * BYTE_SIZE_OF_FLOAT);
         d.imgData.order(ByteOrder.nativeOrder());
         d.outputValues = new int[inputWidth * inputHeight];
-        d.outputBuffer = ByteBuffer.allocateDirect(inputWidth * inputHeight * 21 * BYTE_SIZE_OF_FLOAT);
+        d.outputBuffer = ByteBuffer.allocateDirect(inputWidth * inputHeight * 2);
         d.outputBuffer.order(ByteOrder.nativeOrder());
 
         d.pointStack = new Stack<>();
@@ -176,62 +176,62 @@ public class Deeplab {
 
     private Deeplab() {}
 
-    List<Recognition> segment(Bitmap bitmap, Matrix matrix) {
+    Bitmap segment(Bitmap bitmap, Matrix matrix) {
         bitmap.getPixels(intValues, 0, bitmap.getWidth(), 0, 0, bitmap.getWidth(), bitmap.getHeight());
 
         imgData.rewind();
         outputBuffer.rewind();
+
         for (final int val : intValues) {
-            imgData.putFloat((((val >> 16) & 0xFF) - IMAGE_MEAN) / IMAGE_STD);
-            imgData.putFloat((((val >> 8) & 0xFF) - IMAGE_MEAN) / IMAGE_STD);
-            imgData.putFloat(((val & 0xFF) - IMAGE_MEAN) / IMAGE_STD);
+            imgData.putFloat((float) (((val >> 16) & 0xFF) - 103.939));
+            imgData.putFloat((float) (((val >> 8) & 0xFF) - 116.779));
+            imgData.putFloat((float) ((val & 0xFF) - 123.68));
         }
+
+        Log.e("TAG", "imgData: " + imgData.capacity());
+        Log.e("TAG", "outputBuffer: " + outputBuffer.capacity());
 
         // Copy the input data into TensorFlow.
         tfLite.run(imgData, outputBuffer);
 
-        final List<Recognition> mappedRecognitions = new LinkedList<>();
-
         outputBuffer.flip();
-        for (int col = 0; col < height; col++) {
-            for (int row = 0; row < width; row++) {
-                int id = 0;
-                float max = outputBuffer.getFloat();
 
-                for(int cls = 1; cls < 21; cls++) {
-                    float val = outputBuffer.getFloat();
-                    if (val > max) {
-                        id = cls;
-                        max = val;
+        int white = Color.rgb(255, 255, 255);
+        int black = Color.rgb(0, 0, 0);
+
+        int customHeight = 120, customWidth = 120;
+        Bitmap bgBitmap = Bitmap.createBitmap(customWidth, customHeight, Bitmap.Config.ARGB_8888);
+        Bitmap streamBitmap = Bitmap.createBitmap(customWidth, customHeight, Bitmap.Config.ARGB_8888);
+
+        for (int row = 0; row < customHeight; row++) {
+            for (int col = 0; col < customWidth; col++) {
+                for (int idx = 0; idx < 2; idx++) {
+                    float value = outputBuffer.getFloat();
+                    if (idx % 2 == 0) {
+                        bgBitmap.setPixel(col, row, value > 0.99 ? white : black);
+                    } else {
+                        streamBitmap.setPixel(col, row, value > 0.99 ? white : black);
                     }
                 }
-                outputValues[col * width + row] = id;
             }
         }
 
-        int cnt = 0;
-        for (int col = 0; col < height; col++) {
-            for (int row = 0; row < width; row++) {
-                int id = outputValues[col * width + row];
-                if (id == 0) continue;
+//        ImageUtils.saveBitmap(bgBitmap, "bg.png");
+//        ImageUtils.saveBitmap(streamBitmap, "stream.png");
 
-                RectF rectF = new RectF();
-                rectF.top = col;
-                rectF.bottom = col + 1;
-                rectF.left = row;
-                rectF.right = row + 1;
+//        Matrix maskMatrix = new Matrix();
+//        ImageUtils.getTransformationMatrix(
+//                120, 120,
+//                240, 240,
+//                sensorOrientation, false).invert(maskMatrix);
+//        int[] rgbBytes = new int[640 * 480];
+//        Bitmap rgbFrameBitmap = Bitmap.createBitmap(640, 480, Bitmap.Config.ARGB_8888);
+//        rgbFrameBitmap.setPixels(rgbBytes, 0, 640, 0, 0, 640, 480);
+//
+//        Canvas canvas = new Canvas(streamBitmap);
+//        canvas.drawBitmap(rgbFrameBitmap, maskMatrix, null);
 
-                floodFill(row, col, id, rectF);
-
-                Bitmap maskBitmap = createMask(id, matrix, rectF);
-
-                Recognition result =
-                        new Recognition("" + cnt++, rectF, maskBitmap);
-                mappedRecognitions.add(result);
-            }
-        }
-
-        return mappedRecognitions;
+        return streamBitmap;
     }
 
     private Bitmap createMask(int id, Matrix matrix, RectF rectF) {
@@ -242,7 +242,7 @@ public class Deeplab {
         int left = (int) rectF.left;
 
         Bitmap segBitmap = Bitmap.createBitmap(w, h, Bitmap.Config.ARGB_8888);
-        int tmpValues[] = new int[w * h];
+        int[] tmpValues = new int[w * h];
 
         while (!maskStack.empty()) {
             Point point = maskStack.pop();

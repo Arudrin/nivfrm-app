@@ -19,4 +19,28 @@
     android:layout_width="match_parent"
     android:layout_height="match_parent"
     android:background="#000"
-    tools:context="pp.imagesegmenter.CameraActivity" />
+    tools:context="pp.imagesegmenter.CameraActivity">
+
+    <ImageView
+        android:id="@+id/maskView"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_gravity="bottom|end"
+        android:contentDescription="water stream mask"
+        android:maxWidth="120dp"
+        android:maxHeight="120dp"
+        android:paddingBottom="80dp"
+        android:scaleType="fitCenter" />
+
+    <ImageView
+        android:id="@+id/extractedView"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_gravity="bottom|start"
+        android:contentDescription="water stream mask"
+        android:maxWidth="120dp"
+        android:maxHeight="120dp"
+        android:paddingBottom="100dp"
+        android:scaleType="fitCenter" />
+
+</FrameLayout>

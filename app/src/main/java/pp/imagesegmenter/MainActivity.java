@@ -25,21 +25,21 @@ import android.graphics.Paint;
 import android.graphics.Typeface;
 import android.media.ImageReader.OnImageAvailableListener;
 import android.os.SystemClock;
-import android.util.Log;
 import android.util.Size;
 import android.util.TypedValue;
 import android.widget.FrameLayout;
+import android.widget.ImageView;
 
 import com.google.android.material.snackbar.Snackbar;
+
+import java.util.ArrayList;
+import java.util.List;
+import java.util.Vector;
 
 import pp.imagesegmenter.env.BorderedText;
 import pp.imagesegmenter.env.ImageUtils;
 import pp.imagesegmenter.env.Logger;
 import pp.imagesegmenter.tracking.MultiBoxTracker;
-
-import java.util.Collections;
-import java.util.List;
-import java.util.Vector;
 
 /**
 * An activity that uses a Deeplab and ObjectTracker to segment and then track objects.
@@ -47,7 +47,7 @@ import java.util.Vector;
 public class MainActivity extends CameraActivity implements OnImageAvailableListener {
     private static final Logger LOGGER = new Logger();
 
-    private static final int CROP_SIZE = 257;
+    private static final int CROP_SIZE = 240;
 
     private static final Size DESIRED_PREVIEW_SIZE = new Size(640, 480);
 
@@ -57,6 +57,7 @@ public class MainActivity extends CameraActivity implements OnImageAvailableList
     private Integer sensorOrientation;
 
     private Deeplab deeplab;
+    private Regression regression;
 
     private long lastProcessingTimeMs;
     private Bitmap rgbFrameBitmap = null;
@@ -77,6 +78,9 @@ public class MainActivity extends CameraActivity implements OnImageAvailableList
     private BorderedText borderedText;
 
     private Snackbar initSnackbar;
+    private ImageView maskView;
+    private ImageView extractedView;
+
 
     private boolean initialized = false;
 
@@ -109,7 +113,7 @@ public class MainActivity extends CameraActivity implements OnImageAvailableList
                 ImageUtils.getTransformationMatrix(
                         previewWidth, previewHeight,
                         CROP_SIZE, CROP_SIZE,
-                        sensorOrientation, false);
+                        sensorOrientation, true);
 
         cropToFrameTransform = new Matrix();
         frameToCropTransform.invert(cropToFrameTransform);
@@ -153,6 +157,9 @@ public class MainActivity extends CameraActivity implements OnImageAvailableList
 
                     borderedText.drawLines(canvas, 10, canvas.getHeight() - 10, lines);
                 });
+
+        maskView = findViewById(R.id.maskView);
+        extractedView = findViewById(R.id.extractedView);
     }
 
     OverlayView trackingOverlay;
@@ -166,8 +173,12 @@ public class MainActivity extends CameraActivity implements OnImageAvailableList
                 LOGGER.e("Exception initializing classifier!", e);
                 finish();
             }
-            runOnUiThread(()->initSnackbar.dismiss());
-            initialized = true;
+            runInBackground(() -> {
+                regression = Regression.create(getAssets(), CROP_SIZE, CROP_SIZE, sensorOrientation);
+                runOnUiThread(() -> initSnackbar.dismiss());
+                initialized = true;
+            });
+
         });
     }
 
@@ -214,11 +225,24 @@ public class MainActivity extends CameraActivity implements OnImageAvailableList
                     final long startTime = SystemClock.uptimeMillis();
 
                     cropCopyBitmap = Bitmap.createBitmap(croppedBitmap);
-                    List<Deeplab.Recognition> mappedRecognitions =
-                            deeplab.segment(croppedBitmap,cropToFrameTransform);
+                    Bitmap bitmap = deeplab.segment(croppedBitmap, cropToFrameTransform);
 
-                    lastProcessingTimeMs = SystemClock.uptimeMillis() - startTime;
-                    tracker.trackResults(mappedRecognitions, luminanceCopy, currTimestamp);
+                    final Bitmap scaled = Bitmap.createScaledBitmap(bitmap, 240, 240, false);
+                    List<Bitmap> scaleds = new ArrayList<>();
+                    for (int idx = 0; idx < 30; idx++) {
+                        scaleds.add(scaled);
+                    }
+
+                    final Float flowrate = regression.segment(scaleds);
+
+                    runOnUiThread(() -> {
+                        initSnackbar.setText(flowrate.toString());
+                        initSnackbar.show();
+                        maskView.setImageBitmap(scaled);
+                    });
+
+//                    lastProcessingTimeMs = SystemClock.uptimeMillis() - startTime;
+//                    tracker.trackResults(mappedRecognitions, luminanceCopy, currTimestamp);
                     trackingOverlay.postInvalidate();
 
                     requestRender();
