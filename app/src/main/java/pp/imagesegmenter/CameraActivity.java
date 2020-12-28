@@ -105,9 +105,11 @@ public abstract class CameraActivity extends AppCompatActivity
         if (previewWidth == 0 || previewHeight == 0) {
             return;
         }
+
         if (rgbBytes == null) {
             rgbBytes = new int[previewWidth * previewHeight];
         }
+
         try {
             final Image image = reader.acquireLatestImage();
 
@@ -119,6 +121,7 @@ public abstract class CameraActivity extends AppCompatActivity
                 image.close();
                 return;
             }
+
             isProcessingFrame = true;
             Trace.beginSection("imageAvailable");
             final Plane[] planes = image.getPlanes();
@@ -127,29 +130,28 @@ public abstract class CameraActivity extends AppCompatActivity
             final int uvRowStride = planes[1].getRowStride();
             final int uvPixelStride = planes[1].getPixelStride();
 
-            imageConverter =
-                    () -> ImageUtils.convertYUV420ToARGB8888(
-                            yuvBytes[0],
-                            yuvBytes[1],
-                            yuvBytes[2],
-                            previewWidth,
-                            previewHeight,
-                            yRowStride,
-                            uvRowStride,
-                            uvPixelStride,
-                            rgbBytes);
+            imageConverter = () -> ImageUtils.convertYUV420ToARGB8888( yuvBytes[0]
+                                                                     , yuvBytes[1]
+                                                                     , yuvBytes[2]
+                                                                     , previewWidth
+                                                                     , previewHeight
+                                                                     , yRowStride
+                                                                     , uvRowStride
+                                                                     , uvPixelStride
+                                                                     , rgbBytes
+                                                                     );
 
-            postInferenceCallback =
-                    () -> {
-                        image.close();
-                        isProcessingFrame = false;
-                    };
+            postInferenceCallback = () -> { image.close();
+                                            isProcessingFrame = false;
+                                          };
+
             processImage();
         } catch (final Exception e) {
             LOGGER.e(e, "Exception!");
             Trace.endSection();
             return;
         }
+
         Trace.endSection();
     }
 

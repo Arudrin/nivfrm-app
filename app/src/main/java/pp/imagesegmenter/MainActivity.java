@@ -208,10 +208,10 @@ public class MainActivity extends CameraActivity implements OnImageAvailableList
         System.arraycopy(originalLuminance, 0, luminanceCopy, 0, originalLuminance.length);
         readyForNextImage();
 
-        final Canvas canvas = new Canvas(croppedBitmap);
-        canvas.drawBitmap(rgbFrameBitmap, frameToCropTransform, null);
-
         runInBackground(() -> {
+            final Canvas canvas = new Canvas(croppedBitmap);
+            canvas.drawBitmap(rgbFrameBitmap, frameToCropTransform, null);
+
             cropCopyBitmap = Bitmap.createBitmap(croppedBitmap);
 
             final Bitmap streamMask = deeplab.segment(croppedBitmap);
@@ -227,17 +227,11 @@ public class MainActivity extends CameraActivity implements OnImageAvailableList
                 extractedView.setImageBitmap(extractedStream);
             });
 
-            if (extractedStreams.size() < 10) {
+            if (streamsCollected < 30) {
                 trackingOverlay.postInvalidate();
                 requestRender();
                 computingDetection = false;
                 return;
-            }
-
-            for (int i = 0; i < 2; i++) {
-                for (int j = 0; j < 10; j++) {
-                    extractedStreams.add(extractedStreams.get(j));
-                }
             }
 
             final Float flowrate = regression.segment(extractedStreams);
@@ -249,7 +243,7 @@ public class MainActivity extends CameraActivity implements OnImageAvailableList
             });
 
             try {
-                sleep(3000);
+                sleep(5000);
             } catch (InterruptedException e) {
                 // can't sleep :(
                 e.printStackTrace();
