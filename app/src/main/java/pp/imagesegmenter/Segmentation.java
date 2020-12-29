@@ -34,7 +34,7 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Stack;
 
-public class Deeplab {
+public class Segmentation {
     /**
      * An immutable result returned by a Deeplap describing what was recognized.
      */
@@ -138,16 +138,18 @@ public class Deeplab {
     }
 
     /** Initializes a native TensorFlow session. */
-    public static Deeplab create(
+    public static Segmentation create(
             AssetManager assetManager,
             int inputWidth,
             int inputHeight,
             int sensorOrientation) {
-        final Deeplab d = new Deeplab();
+        final Segmentation d = new Segmentation();
 
         try {
-            GpuDelegate delegate = new GpuDelegate();
-            Interpreter.Options options = (new Interpreter.Options()).addDelegate(delegate);
+            GpuDelegate gpuDelegate = new GpuDelegate();
+            Interpreter.Options options = new Interpreter.Options();
+            options.addDelegate(gpuDelegate);
+
             d.tfLite = new Interpreter(loadModelFile(assetManager), options);
         } catch (Exception e) {
             throw new RuntimeException(e);
@@ -171,7 +173,7 @@ public class Deeplab {
     }
 
 
-    private Deeplab() {}
+    private Segmentation() {}
 
     Bitmap segment(Bitmap bitmap) {
         bitmap.getPixels(intValues, 0, bitmap.getWidth(), 0, 0, bitmap.getWidth(), bitmap.getHeight());

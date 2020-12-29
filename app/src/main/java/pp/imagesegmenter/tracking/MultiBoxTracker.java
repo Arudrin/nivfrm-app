@@ -26,7 +26,7 @@ import android.graphics.RectF;
 import android.util.TypedValue;
 import android.widget.Toast;
 
-import pp.imagesegmenter.Deeplab.Recognition;
+import pp.imagesegmenter.Segmentation.Recognition;
 import pp.imagesegmenter.env.BorderedText;
 import pp.imagesegmenter.env.ImageUtils;
 import pp.imagesegmenter.env.Logger;

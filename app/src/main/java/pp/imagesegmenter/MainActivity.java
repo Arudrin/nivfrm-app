@@ -32,8 +32,7 @@ import android.widget.ImageView;
 import com.google.android.material.snackbar.Snackbar;
 
 import java.util.ArrayList;
-import java.util.LinkedList;
-import java.util.Queue;
+import java.util.List;
 import java.util.Vector;
 
 import pp.imagesegmenter.env.BorderedText;
@@ -58,7 +57,7 @@ public class MainActivity extends CameraActivity implements OnImageAvailableList
 
     private Integer sensorOrientation;
 
-    private Deeplab deeplab;
+    private Segmentation segmentation;
     private Regression regression;
 
     private long lastProcessingTimeMs;
@@ -83,9 +82,12 @@ public class MainActivity extends CameraActivity implements OnImageAvailableList
     private ImageView maskView;
     private ImageView extractedView;
 
-    private Queue<Bitmap> acquiredFrames = new LinkedList<>();
+    private List<Bitmap> acquiredFrames = new ArrayList<>();
+    final ArrayList<Bitmap> extractedStreams = new ArrayList<>();
 
     private boolean initialized = false;
+
+    private int FRAMES = 30;
 
     @Override
     public void onPreviewSizeChosen(final Size size, final int rotation) {
@@ -171,9 +173,9 @@ public class MainActivity extends CameraActivity implements OnImageAvailableList
         runInBackground(() -> {
             runOnUiThread(()->initSnackbar.show());
             try {
-                deeplab = Deeplab.create(getAssets(), CROP_SIZE, CROP_SIZE, sensorOrientation);
+                segmentation = Segmentation.create(getAssets(), CROP_SIZE, CROP_SIZE, sensorOrientation);
             } catch (Exception e) {
-                LOGGER.e("Exception initializing classifier!", e);
+                LOGGER.e("Exception initializing classifier: " + e.getLocalizedMessage(), e);
                 finish();
             }
             runInBackground(() -> {
@@ -184,8 +186,6 @@ public class MainActivity extends CameraActivity implements OnImageAvailableList
 
         });
     }
-
-    final ArrayList<Bitmap> extractedStreams = new ArrayList<>(30);
 
     @Override
     protected void processImage() {
@@ -226,37 +226,52 @@ public class MainActivity extends CameraActivity implements OnImageAvailableList
                 initSnackbar.setText("Acquired " + numberOfFramesAcquired + " frames...");
             });
 
-            if (numberOfFramesAcquired < 30) {
+            if (numberOfFramesAcquired < FRAMES) {
                 computingDetection = false;
                 return;
             }
 
-            while(!acquiredFrames.isEmpty()) {
-                acquiredFrame = acquiredFrames.remove();
-                final Bitmap streamMask = deeplab.segment(acquiredFrame);
-                final Bitmap scaledMask = Bitmap.createScaledBitmap(streamMask, 240, 240, false);
-                final Bitmap extractedStream = extractWaterStream(acquiredFrame, scaledMask);
+            List<Bitmap> streamMasks = new ArrayList();
+            for (int idx = 0; idx < FRAMES; idx++) {
+                acquiredFrame = acquiredFrames.get(idx);
+                final Bitmap streamMask = segmentation.segment(acquiredFrame);
+                streamMasks.add(streamMask);
+
+                final int tmp_idx = idx + 1;
+                runOnUiThread(() -> {
+                    maskView.setImageBitmap(streamMask);
+                    initSnackbar.setText("Extracted " + tmp_idx + " streams...");
+                    initSnackbar.show();
+                });
+            }
+            acquiredFrames.clear();
+
+            for (int idx = 0; idx < FRAMES; idx++) {
+                final Bitmap streamMask = streamMasks.get(idx);
+                final Bitmap scaledMask = Bitmap.createScaledBitmap(streamMask, CROP_SIZE, CROP_SIZE, false);
+                final Bitmap extractedStream = applyMask(acquiredFrame, scaledMask);
                 extractedStreams.add(extractedStream);
 
-                final int numberOfExtractedFrames = extractedStreams.size();
+                final int tmp_idx = idx + 1;
                 runOnUiThread(() -> {
-                    initSnackbar.setText("Extracted " + numberOfExtractedFrames + " frames...");
-                    initSnackbar.show();
-                    maskView.setImageBitmap(scaledMask);
                     extractedView.setImageBitmap(extractedStream);
+                    initSnackbar.setText("Applied " + tmp_idx + " masks...");
+                    initSnackbar.show();
                 });
-
-                trackingOverlay.postInvalidate();
-                requestRender();
             }
 
-            final Float flowrate = regression.segment(extractedStreams);
-            extractedStreams.clear();
+            streamMasks.clear();
+            trackingOverlay.postInvalidate();
+            requestRender();
+
+            final Float flowrate = regression.estimate(extractedStreams);
 
             runOnUiThread(() -> {
                 initSnackbar.setText(flowrate.toString());
                 initSnackbar.show();
             });
+
+            extractedStreams.clear();
 
             try {
                 sleep(5000);
@@ -279,7 +294,7 @@ public class MainActivity extends CameraActivity implements OnImageAvailableList
         return DESIRED_PREVIEW_SIZE;
     }
 
-    private Bitmap extractWaterStream(Bitmap streamImage, Bitmap streamMask) {
+    private Bitmap applyMask(Bitmap streamImage, Bitmap streamMask) {
         final int black = Color.rgb(0, 0, 0);
 
         for (int row = 0; row < streamImage.getHeight(); row++) {

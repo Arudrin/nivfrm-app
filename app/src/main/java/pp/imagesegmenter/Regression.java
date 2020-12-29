@@ -79,8 +79,9 @@ public class Regression {
         final Regression d = new Regression();
 
         try {
-            GpuDelegate delegate = new GpuDelegate();
+            GpuDelegate gpuDelegate = new GpuDelegate();
             Interpreter.Options options = new Interpreter.Options();
+            options.addDelegate(gpuDelegate);
             d.tfLite = new Interpreter(loadModelFile(assetManager), options);
         } catch (Exception e) {
             throw new RuntimeException(e);
@@ -103,7 +104,7 @@ public class Regression {
         return d;
     }
 
-    Float segment(List<Bitmap> bitmaps) {
+    Float estimate(List<Bitmap> bitmaps) {
 
         outputBuffer.rewind();
         Object[] inputs = new Object[30];
@@ -118,8 +119,8 @@ public class Regression {
             inputs[idx] = imgData;
         }
 
-        Log.e("TAG", "imgData: " + imgData.capacity());
-        Log.e("TAG", "outputBuffer: " + outputBuffer.capacity());
+        Log.d("TAG", "imgData: " + imgData.capacity());
+        Log.d("TAG", "outputBuffer: " + outputBuffer.capacity());
 
         float[][] output = new float[1][1];
         Map<Integer, Object> outputs = new HashMap<>();
@@ -129,7 +130,7 @@ public class Regression {
         tfLite.runForMultipleInputsOutputs(inputs, outputs);
 
         float flowrate = ((float[][]) outputs.get(0))[0][0];
-        Log.e("TAG", "flowrate: " + flowrate);
+        Log.d("TAG", "flowrate: " + flowrate);
 
         return flowrate;
     }
