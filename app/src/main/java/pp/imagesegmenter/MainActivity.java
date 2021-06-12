@@ -87,7 +87,7 @@ public class MainActivity extends CameraActivity implements OnImageAvailableList
 
     private boolean initialized = false;
 
-    private int FRAMES = 30;
+    private int FRAMES = 10;
 
     @Override
     public void onPreviewSizeChosen(final Size size, final int rotation) {
@@ -179,7 +179,7 @@ public class MainActivity extends CameraActivity implements OnImageAvailableList
                 finish();
             }
             runInBackground(() -> {
-                regression = Regression.create(getAssets(), CROP_SIZE, CROP_SIZE, sensorOrientation);
+                //regression = Regression.create(getAssets(), CROP_SIZE, CROP_SIZE, sensorOrientation);
                 runOnUiThread(() -> initSnackbar.dismiss());
                 initialized = true;
             });
@@ -240,7 +240,7 @@ public class MainActivity extends CameraActivity implements OnImageAvailableList
                 final int tmp_idx = idx + 1;
                 runOnUiThread(() -> {
                     maskView.setImageBitmap(streamMask);
-                    initSnackbar.setText("Extracted " + tmp_idx + " streams...");
+                    initSnackbar.setText("Extracted " + tmp_idx + " frames...");
                     initSnackbar.show();
                 });
             }
@@ -263,13 +263,13 @@ public class MainActivity extends CameraActivity implements OnImageAvailableList
             streamMasks.clear();
             trackingOverlay.postInvalidate();
             requestRender();
-
-            final Float flowrate = regression.estimate(extractedStreams);
-
-            runOnUiThread(() -> {
-                initSnackbar.setText(flowrate.toString());
-                initSnackbar.show();
-            });
+//
+//            final Float flowrate = regression.estimate(extractedStreams);
+//
+//            runOnUiThread(() -> {
+//                initSnackbar.setText(flowrate.toString());
+//                initSnackbar.show();
+//            });
 
             extractedStreams.clear();
 

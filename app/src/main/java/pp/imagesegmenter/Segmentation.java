@@ -82,7 +82,7 @@ public class Segmentation {
         }
     }
 
-    private static final String MODEL_FILE = "segmentation.tflite";
+    private static final String MODEL_FILE = "streamsegmentation.tflite";
     // Float model
     private static final float IMAGE_MEAN = 128.0f;
     private static final float IMAGE_STD = 128.0f;
